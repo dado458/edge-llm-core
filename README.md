@@ -1,0 +1,149 @@
+# edge-llm-core
+
+> **⚠️ ALPHA SOFTWARE — v0.1.0**
+> This package is in early alpha. APIs may change without notice between minor versions.
+> It has not been audited for production security. Use at your own risk.
+> All LLM calls consume Anthropic API credits — monitor your usage.
+> The authors are not responsible for any costs, data loss, or damages arising from use.
+
+**Framework for building autonomous Edge LLM agents as MCP servers.**
+
+`edge-llm-core` defines the *Edge LLM Pattern* — a way to turn an MCP server from a
+stateless API wrapper into an autonomous, stateful agent with its own internal LLM loop,
+domain state machine, persistent memory, and multi-tenant configuration.
+
+## The pattern in one sentence
+
+> Instead of Claude calling an MCP tool to *get data*, Claude calls an MCP tool to *delegate
+> an entire domain of responsibility* to a specialised agent that reasons, acts, and remembers
+> autonomously.
+
+## Install
+
+```bash
+pip install edge-llm-core
+# with Redis support (production memory)
+pip install "edge-llm-core[redis]"
+# with FastAPI (hosted SaaS layer)
+pip install "edge-llm-core[server]"
+```
+
+## Build a vertical in 4 steps
+
+```python
+# 1 — Define the domain state machine
+from edge_llm.core.state_machine import StateMachine, StageContext
+
+class SupportPipeline(StateMachine):
+    stages          = ["OPEN", "IN_PROGRESS", "WAITING", "RESOLVED", "CLOSED"]
+    terminal_stages = ["RESOLVED", "CLOSED"]
+    transitions     = {
+        "OPEN":        ["IN_PROGRESS", "CLOSED"],
+        "IN_PROGRESS": ["WAITING", "RESOLVED", "CLOSED"],
+        "WAITING":     ["IN_PROGRESS", "CLOSED"],
+        "RESOLVED":    ["CLOSED"],
+        "CLOSED":      [],
+    }
+
+# 2 — Implement the agent
+from edge_llm.core.agent import EdgeAgent
+
+class SupportAgent(EdgeAgent):
+    def get_state_machine(self):
+        return SupportPipeline()
+
+    def build_system_prompt(self, tenant_cfg, stage_ctx):
+        return f"You are a support agent for {tenant_cfg.name}. Current stage: {stage_ctx.stage}."
+
+    def get_tools(self):
+        return [...]  # Anthropic tool definitions
+
+    def get_tool_map(self):
+        return {"triage_ticket": triage_fn, "escalate": escalate_fn}
+
+# 3 — Expose as MCP server
+from edge_llm.core.mcp_server import BaseEdgeMCPServer
+from edge_llm.core.memory.local import LocalMemoryStore
+from edge_llm.core.tenants.local import LocalTenantStore
+from edge_llm.core.usage.local import LocalUsageTracker
+
+class SupportMCPServer(BaseEdgeMCPServer):
+    SERVER_NAME = "support-agent"
+    def create_agent(self):   return SupportAgent(self.create_memory(), self.create_tenants(), self.create_tracker())
+    def create_memory(self):  return LocalMemoryStore()
+    def create_tenants(self): return LocalTenantStore()
+    def create_tracker(self): return LocalUsageTracker()
+
+# 4 — Run
+if __name__ == "__main__":
+    SupportMCPServer().run()
+```
+
+Add to your `pyproject.toml`:
+```toml
+[project.scripts]
+support-agent-mcp = "support_agent_mcp.server:main"
+```
+
+Then in your Claude config:
+```json
+{
+  "mcpServers": {
+    "support": {
+      "command": "uvx",
+      "args": ["support-agent-mcp"],
+      "env": { "ANTHROPIC_API_KEY": "sk-ant-..." }
+    }
+  }
+}
+```
+
+## What every vertical gets for free
+
+`BaseEdgeMCPServer` automatically exposes 7 standard MCP tools:
+
+| Tool | Description |
+|---|---|
+| `handle_message` | Send a message → runs full internal agent loop → returns reply |
+| `get_entity_state` | Current state-machine stage + metadata |
+| `get_conversation` | Message history (last N) |
+| `set_entity_stage` | Manually advance or reset stage |
+| `add_note` | Attach internal note without triggering the loop |
+| `get_usage` | Monthly calls, tokens, cost for a tenant |
+| `list_entities` | All active entities in memory |
+
+## Architecture
+
+```
+Claude (central)
+    │  delegates entire domain
+    ▼
+BaseEdgeMCPServer          ← your MCP server
+    └── EdgeAgent           ← internal LLM loop (Claude Opus/Sonnet)
+         ├── StateMachine   ← domain state (OPEN → IN_PROGRESS → RESOLVED)
+         ├── Memory         ← persistent per-entity state + conversation
+         ├── TenantStore    ← per-tenant config (name, prompt, plan)
+         └── UsageTracker   ← billing-ready usage metering
+```
+
+## Available verticals
+
+| Package | Domain | Install |
+|---|---|---|
+| [sales-agent-mcp](https://pypi.org/project/sales-agent-mcp/) | Sales funnel (COLD→WON) | `pip install sales-agent-mcp` |
+| finance-agent-mcp | Invoice lifecycle | coming soon |
+| support-agent-mcp | Ticket triage + resolution | coming soon |
+
+## Production backends
+
+| Layer | Dev (default) | Production |
+|---|---|---|
+| Memory | `LocalMemoryStore` (JSON) | `RedisMemoryStore` |
+| Tenants | `LocalTenantStore` (JSON) | subclass for PostgreSQL |
+| Usage | `LocalUsageTracker` (JSON) | subclass for PostgreSQL |
+
+Switch with environment variables — zero code changes.
+
+## License
+
+Apache 2.0 — free for commercial use, attribution required.

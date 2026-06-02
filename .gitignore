@@ -1,0 +1,25 @@
+# Build artifacts — never commit these
+dist/
+build/
+*.egg-info/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Test cache
+.pytest_cache/
+
+# Local runtime data (dev JSON stores)
+data/
+
+# Environment variables
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+*.DS_Store
+Thumbs.db
