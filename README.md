@@ -1,10 +1,18 @@
 # edge-llm-core
 
-> **⚠️ ALPHA SOFTWARE — v0.1.0**
-> This package is in early alpha. APIs may change without notice between minor versions.
-> It has not been audited for production security. Use at your own risk.
-> All LLM calls consume Anthropic API credits — monitor your usage.
-> The authors are not responsible for any costs, data loss, or damages arising from use.
+> **⚠️ ALPHA SOFTWARE — FOR DEVELOPMENT USE ONLY — v0.1.0**
+>
+> This package is intended for **development, prototyping, and research purposes only**.
+> It is not suitable for production environments without significant additional hardening.
+>
+> - APIs may change without notice between minor versions in the 0.x series.
+> - This package has not been audited for security. Do not use it to process, store, or transmit
+>   sensitive, personal, or regulated data (PII, financial, health) without your own thorough security review.
+> - All LLM calls made through this framework consume Anthropic API credits. Costs are your responsibility — monitor usage actively.
+> - There is no guarantee of uptime, correctness, or fitness for any particular purpose.
+> - **The authors accept no responsibility for any costs, data loss, security breaches, compliance violations,
+>   or damages of any kind arising from the use or misuse of this software.**
+> - Use entirely at your own risk.
 
 **Framework for building autonomous Edge LLM agents as MCP servers.**
 
