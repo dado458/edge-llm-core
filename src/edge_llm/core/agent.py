@@ -92,6 +92,10 @@ class EdgeAgent(ABC):
         returns the final text reply. All state is persisted automatically.
         """
         tenant_cfg   = self._tenants.get(tenant_id)
+
+        if self._tracker.is_over_limit(tenant_id, tenant_cfg.plan):
+            return f"[Usage limit reached for tenant '{tenant_id}' on plan '{tenant_cfg.plan}']"
+
         entity_state = self._memory.get_entity_state(entity_id) or self.initial_entity_state()
         stage        = entity_state.get("stage", self._sm.initial_stage())
 
