@@ -144,6 +144,18 @@ BaseEdgeMCPServer          ← your MCP server
 
 Switch with environment variables — zero code changes.
 
+## Known limitations
+
+These are documented behaviours in v0.1.0 — not bugs, but things to be aware of before deploying:
+
+| Limitation | Detail |
+|---|---|
+| **No API retry** | If the Anthropic API returns an error or times out mid-loop, the exception propagates uncaught. The MCP server will return an error to the host. Implement retries in your `on_before_run` / `on_after_run` hooks or wrap `agent.run()` at the call site. |
+| **`max_tokens=1024` per loop iteration** | Each internal LLM call is capped at 1 024 output tokens. If the agent needs to produce a longer reply, the response will be truncated silently with `stop_reason: max_tokens`. Override `_MAX_TOKENS` by subclassing `EdgeAgent` if your domain needs longer outputs. |
+| **`LocalMemoryStore` not thread-safe** | JSON file reads/writes are not atomic. Use `RedisMemoryStore` for any multi-instance or concurrent deployment. |
+| **`list_entities` only works with `LocalMemoryStore`** | Production memory stores should override `_list_entities()` in their `BaseEdgeMCPServer` subclass. |
+| **`schedule_followup` requires a worker** | The tool writes a pending flag in memory but does not trigger any action by itself. A `BaseWorker` subclass must be running separately to process it. |
+
 ## License
 
 Apache 2.0 — free for commercial use, attribution required.
