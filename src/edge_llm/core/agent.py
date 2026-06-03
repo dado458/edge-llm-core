@@ -19,9 +19,10 @@ from .usage.base import AbstractUsageTracker
 from .state_machine import StateMachine, StageContext
 
 
-_COMPACT_THRESHOLD = 20  # messages before compaction kicks in
+_COMPACT_THRESHOLD = 20    # messages before compaction kicks in
 _COMPACT_MODEL     = "claude-haiku-4-5-20251001"
-_MAX_LOOP_ITERS    = 10  # safety: abort if Claude keeps calling tools without end_turn
+_MAX_LOOP_ITERS    = 10    # safety: abort if Claude keeps calling tools without end_turn
+_MAX_MESSAGE_CHARS = 8_000 # input guard: ~2k tokens, enough for any real support/sales message
 
 
 class EdgeAgent(ABC):
@@ -91,7 +92,15 @@ class EdgeAgent(ABC):
         Main entry point. Receives one message, runs the internal agent loop,
         returns the final text reply. All state is persisted automatically.
         """
-        tenant_cfg   = self._tenants.get(tenant_id)
+        # Bug fix: unknown tenant returns a clean string instead of raising KeyError.
+        try:
+            tenant_cfg = self._tenants.get(tenant_id)
+        except KeyError:
+            return f"[Unknown tenant '{tenant_id}']"
+
+        # Bug fix: reject oversized inputs before they hit the LLM.
+        if len(incoming_message) > _MAX_MESSAGE_CHARS:
+            return f"[Message too long: {len(incoming_message)} chars, limit {_MAX_MESSAGE_CHARS}]"
 
         if self._tracker.is_over_limit(tenant_id, tenant_cfg.plan):
             return f"[Usage limit reached for tenant '{tenant_id}' on plan '{tenant_cfg.plan}']"
@@ -104,14 +113,25 @@ class EdgeAgent(ABC):
 
         self.on_before_run(tenant_cfg, entity_id, incoming_message)
 
-        stage_ctx       = self._sm.get_context(stage)
-        system_prompt   = self.build_system_prompt(tenant_cfg, stage_ctx)
-        messages        = self._memory.get_conversation(entity_id)
+        stage_ctx     = self._sm.get_context(stage)
+        system_prompt = self.build_system_prompt(tenant_cfg, stage_ctx)
+
+        # Bug fix: reload any compact summary persisted from a previous run and inject it,
+        # so historical context survives across calls after compaction.
+        prior_summary = entity_state.get("compact_summary", "")
+        if prior_summary:
+            system_prompt = self._inject_summary(system_prompt, prior_summary)
+
+        messages = self._memory.get_conversation(entity_id)
         messages.append({"role": "user", "content": incoming_message})
 
         if self._should_compact(messages):
-            messages, summary = self._compact(messages, tenant_id)
-            system_prompt     = self._inject_summary(system_prompt, summary)
+            messages, new_summary = self._compact(messages, tenant_id, prior_summary=prior_summary)
+            entity_state["compact_summary"] = new_summary
+            # Rebuild prompt with the merged summary so this run also sees it cleanly.
+            system_prompt = self._inject_summary(
+                self.build_system_prompt(tenant_cfg, stage_ctx), new_summary
+            )
             self._memory.save_conversation(entity_id, messages)
 
         reply = self._loop(
@@ -193,12 +213,21 @@ class EdgeAgent(ABC):
     def _should_compact(messages: list) -> bool:
         return len(messages) >= _COMPACT_THRESHOLD
 
-    def _compact(self, messages: list, tenant_id: str = "__compact__") -> tuple[list, str]:
-        """Summarize old messages with Haiku, return (trimmed_messages, summary)."""
-        history_text = "\n".join(
+    def _compact(self, messages: list, tenant_id: str = "__compact__",
+                 prior_summary: str = "") -> tuple[list, str]:
+        """Summarize old messages with Haiku, return (trimmed_messages, summary).
+
+        prior_summary: summary from a previous compaction — prepended so the new
+        summary merges all historical context, not just the current window.
+        """
+        parts = []
+        if prior_summary:
+            parts.append(f"[Earlier conversation summary: {prior_summary}]")
+        parts.extend(
             f"{m['role'].upper()}: {m['content'] if isinstance(m['content'], str) else '[tool]'}"
             for m in messages[:-4]
         )
+        history_text = "\n".join(parts)
         resp = self._client.messages.create(
             model=_COMPACT_MODEL,
             max_tokens=512,

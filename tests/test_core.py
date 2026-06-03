@@ -151,3 +151,71 @@ def test_usage_enterprise_no_limit(tmp_path):
     for _ in range(10_000):
         tracker.record("big", "claude-haiku-4-5-20251001", 1, 1)
     assert not tracker.is_over_limit("big", "enterprise")
+
+
+# ── EdgeAgent guard clauses (no API key needed) ───────────────────────────────
+
+from unittest.mock import MagicMock
+from edge_llm.core.agent import EdgeAgent, _MAX_MESSAGE_CHARS
+
+
+class _MinimalAgent(EdgeAgent):
+    """Minimal concrete subclass for testing guard clauses without a real LLM."""
+    def get_state_machine(self):      return SimplePipeline()
+    def build_system_prompt(self, t, s): return "prompt"
+    def get_tools(self):              return []
+    def get_tool_map(self):           return {}
+
+
+def _make_agent(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test-fake")
+    return _MinimalAgent(
+        memory=LocalMemoryStore(tmp_path / "memory"),
+        tenants=LocalTenantStore(tmp_path / "tenants.json"),
+        tracker=LocalUsageTracker(tmp_path / "usage"),
+    )
+
+
+def test_run_unknown_tenant_returns_clean_string(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path, monkeypatch)
+    result = agent.run("nonexistent-tenant", "e1", "hello")
+    assert result.startswith("[Unknown tenant")
+    assert "nonexistent-tenant" in result
+
+
+def test_run_message_too_long_returns_clean_string(tmp_path, monkeypatch):
+    store = LocalTenantStore(tmp_path / "tenants.json")
+    store.register("t1", plan="basic")
+    agent = _make_agent(tmp_path, monkeypatch)
+    long_msg = "x" * (_MAX_MESSAGE_CHARS + 1)
+    result = agent.run("t1", "e1", long_msg)
+    assert result.startswith("[Message too long")
+
+
+def test_compact_summary_persisted_to_entity_state(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path, monkeypatch)
+    # Simulate a prior_summary already in entity_state.
+    mem = agent._memory
+    mem.save_entity_state("e1", {"stage": "START", "compact_summary": "User asked about pricing."})
+    state = mem.get_entity_state("e1")
+    assert state["compact_summary"] == "User asked about pricing."
+
+
+def test_compact_includes_prior_summary_in_history(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path, monkeypatch)
+    messages = [{"role": "user", "content": f"msg {i}"} for i in range(8)]
+    # _compact is called internally; verify it returns trimmed messages (last 4).
+    # We mock the Anthropic client to avoid a real API call.
+    mock_resp = MagicMock()
+    mock_resp.content = [MagicMock(text="merged summary")]
+    mock_resp.usage.input_tokens = 10
+    mock_resp.usage.output_tokens = 5
+    agent._client.messages.create = MagicMock(return_value=mock_resp)
+
+    trimmed, summary = agent._compact(messages, "t1", prior_summary="old summary")
+    assert summary == "merged summary"
+    assert len(trimmed) == 4
+    # Verify the prompt sent to Haiku included the prior summary.
+    call_args = agent._client.messages.create.call_args
+    prompt_content = call_args[1]["messages"][0]["content"]
+    assert "old summary" in prompt_content
