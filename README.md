@@ -30,13 +30,21 @@ domain state machine, persistent memory, and multi-tenant configuration.
 
 ## Install
 
+> **Note:** PyPI publication is planned for v1.0.0 (stable release).
+> Until then, install directly from GitHub:
+
 ```bash
-pip install edge-llm-core
-# with Redis support (production memory)
-pip install "edge-llm-core[redis]"
-# with FastAPI (hosted SaaS layer)
-pip install "edge-llm-core[server]"
+# Current (GitHub)
+pip install git+https://github.com/dado458/edge-llm-core.git
+
+# With Redis support
+pip install "edge-llm-core[redis] @ git+https://github.com/dado458/edge-llm-core.git"
+
+# With FastAPI
+pip install "edge-llm-core[server] @ git+https://github.com/dado458/edge-llm-core.git"
 ```
+
+> Once published to PyPI (v1.0.0), installation will simplify to `pip install edge-llm-core`.
 
 ## Build a vertical in 4 steps
 
