@@ -140,9 +140,9 @@ BaseEdgeMCPServer          ← your MCP server
 
 | Package | Domain | Install |
 |---|---|---|
-| [sales-agent-mcp](https://pypi.org/project/sales-agent-mcp/) | Sales funnel (COLD→WON) | `pip install sales-agent-mcp` |
+| [sales-agent-mcp](https://github.com/dado458/sales-agent-mcp) | Sales funnel (COLD→WON) | `pip install git+https://github.com/dado458/sales-agent-mcp.git` |
+| [support-agent-mcp](https://github.com/dado458/support-agent-mcp) | Ticket triage + resolution | `pip install git+https://github.com/dado458/support-agent-mcp.git` |
 | finance-agent-mcp | Invoice lifecycle | coming soon |
-| support-agent-mcp | Ticket triage + resolution | coming soon |
 
 ## Production backends
 
