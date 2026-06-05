@@ -70,8 +70,10 @@ class EdgeAgent(ABC):
         """Return Anthropic tool definitions for the domain tools."""
 
     @abstractmethod
-    def get_tool_map(self) -> dict[str, callable]:
-        """Return {tool_name: callable} mapping for execution."""
+    def get_tool_map(self, tenant_id: str = "") -> dict[str, callable]:
+        """Return {tool_name: callable} mapping for execution.
+        tenant_id is passed so subclasses can inject per-tenant context
+        (e.g. product catalog) into tool closures."""
 
     @abstractmethod
     def get_state_machine(self) -> StateMachine:
@@ -159,7 +161,7 @@ class EdgeAgent(ABC):
     def _loop(self, tenant_id: str, entity_id: str, plan: str,
               system_prompt: str, messages: list, entity_state: dict) -> str:
         tools    = self.get_tools()
-        tool_map = self.get_tool_map()
+        tool_map = self.get_tool_map(tenant_id=tenant_id)
         per_call_token_cap = MAX_INPUT_TOKENS_PER_CALL.get(plan, 8_000)
 
         for _ in range(_MAX_LOOP_ITERS):
