@@ -27,7 +27,8 @@ dependencies = [
 redis   = ["redis>=5.0.0"]
 pg      = ["psycopg2-binary>=2.9.0"]
 server  = ["fastapi>=0.115.0", "uvicorn[standard]>=0.32.0"]
-all     = ["edge-llm-core[redis,pg,server]"]
+vector  = ["chromadb>=0.5.0"]
+all     = ["edge-llm-core[redis,pg,server,vector]"]
 dev     = ["pytest>=8.0", "pytest-asyncio", "build", "twine"]
 
 [project.urls]

@@ -70,7 +70,7 @@ def test_memory_conversation(tmp_path):
 
 def test_memory_entity_state(tmp_path):
     mem = LocalMemoryStore(tmp_path)
-    assert mem.get_entity_state("e1") == {}
+    assert mem.get_entity_state("e1") is None  # None for missing entities (not {})
     mem.save_entity_state("e1", {"stage": "START"})
     assert mem.get_entity_state("e1") == {"stage": "START"}
 
@@ -81,6 +81,15 @@ def test_memory_update_entity_state(tmp_path):
     updated = mem.update_entity_state("e1", stage="MIDDLE", score=10)
     assert updated["stage"] == "MIDDLE"
     assert updated["score"] == 10
+
+
+def test_memory_update_entity_state_new_entity(tmp_path):
+    """update_entity_state must not crash when the entity doesn't exist yet (state=None)."""
+    mem = LocalMemoryStore(tmp_path)
+    updated = mem.update_entity_state("brand-new", stage="COLD", tenant_id="t1")
+    assert updated["stage"] == "COLD"
+    assert updated["tenant_id"] == "t1"
+    assert mem.get_entity_state("brand-new") == updated
 
 
 # ── LocalTenantStore ─────────────────────────────────────────────────────────
