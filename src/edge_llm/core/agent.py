@@ -8,14 +8,17 @@ Subclass this for each vertical:
         def get_tool_map(self): ...
 """
 import json
+import logging
 import os
 from abc import ABC, abstractmethod
 
 import anthropic
 
+logger = logging.getLogger(__name__)
+
 from .memory.base import AbstractMemoryStore
 from .tenants.base import AbstractTenantStore, TenantConfig
-from .usage.base import AbstractUsageTracker
+from .usage.base import AbstractUsageTracker, MAX_INPUT_TOKENS_PER_CALL
 from .state_machine import StateMachine, StageContext
 
 
@@ -98,12 +101,17 @@ class EdgeAgent(ABC):
         except KeyError:
             return f"[Unknown tenant '{tenant_id}']"
 
-        # Bug fix: reject oversized inputs before they hit the LLM.
+        # Reject oversized single messages before they hit the LLM.
         if len(incoming_message) > _MAX_MESSAGE_CHARS:
             return f"[Message too long: {len(incoming_message)} chars, limit {_MAX_MESSAGE_CHARS}]"
 
+        # Check call-count cap.
         if self._tracker.is_over_limit(tenant_id, tenant_cfg.plan):
             return f"[Usage limit reached for tenant '{tenant_id}' on plan '{tenant_cfg.plan}']"
+
+        # Check monthly token budget.
+        if self._tracker.is_over_token_limit(tenant_id, tenant_cfg.plan):
+            return f"[Monthly token budget reached for plan '{tenant_cfg.plan}']"
 
         entity_state = self._memory.get_entity_state(entity_id) or self.initial_entity_state()
         stage        = entity_state.get("stage", self._sm.initial_stage())
@@ -137,6 +145,7 @@ class EdgeAgent(ABC):
         reply = self._loop(
             tenant_id=tenant_id,
             entity_id=entity_id,
+            plan=tenant_cfg.plan,
             system_prompt=system_prompt,
             messages=messages,
             entity_state=entity_state,
@@ -147,12 +156,39 @@ class EdgeAgent(ABC):
 
     # ── Internal loop ────────────────────────────────────────────────────────
 
-    def _loop(self, tenant_id: str, entity_id: str,
+    def _loop(self, tenant_id: str, entity_id: str, plan: str,
               system_prompt: str, messages: list, entity_state: dict) -> str:
         tools    = self.get_tools()
         tool_map = self.get_tool_map()
+        per_call_token_cap = MAX_INPUT_TOKENS_PER_CALL.get(plan, 8_000)
 
         for _ in range(_MAX_LOOP_ITERS):
+            # Pre-flight: count input tokens and enforce caps before spending money.
+            try:
+                counted = self._client.messages.count_tokens(
+                    model=self._model,
+                    system=system_prompt,
+                    tools=tools,
+                    messages=messages,
+                )
+                input_tokens_estimate = counted.input_tokens
+            except Exception:
+                # count_tokens is best-effort; don't block the call if it fails.
+                input_tokens_estimate = 0
+
+            if input_tokens_estimate > per_call_token_cap:
+                self._memory.save_conversation(entity_id, messages)
+                self._memory.save_entity_state(entity_id, entity_state)
+                return (
+                    f"[Input too large: {input_tokens_estimate} tokens, "
+                    f"limit {per_call_token_cap} for plan '{plan}']"
+                )
+
+            if self._tracker.would_exceed_token_limit(tenant_id, plan, input_tokens_estimate):
+                self._memory.save_conversation(entity_id, messages)
+                self._memory.save_entity_state(entity_id, entity_state)
+                return f"[Monthly token budget would be exceeded — plan '{plan}']"
+
             response = self._client.messages.create(
                 model=self._model,
                 max_tokens=1024,
@@ -168,7 +204,7 @@ class EdgeAgent(ABC):
                 output_tokens=response.usage.output_tokens,
             )
 
-            # Serialize SDK objects to plain dicts so json.dumps works in save_conversation.
+            # Serialize SDK objects to plain dicts for json.dumps in save_conversation.
             messages.append({"role": "assistant", "content": self._serialize_content(response.content)})
 
             if response.stop_reason in ("end_turn", "max_tokens"):
@@ -181,6 +217,16 @@ class EdgeAgent(ABC):
             if response.stop_reason == "tool_use":
                 results = self._execute_tools(response.content, tool_map, entity_state)
                 messages.append({"role": "user", "content": results})
+                continue
+
+            # Bug fix: unrecognized stop_reason (future API changes) — treat as end_turn
+            # to avoid re-sending the same messages indefinitely.
+            logger.warning("Unexpected stop_reason=%r for entity=%s", response.stop_reason, entity_id)
+            reply = self._extract_text(response.content)
+            entity_state["interactions"] = entity_state.get("interactions", 0) + 1
+            self._memory.save_conversation(entity_id, messages)
+            self._memory.save_entity_state(entity_id, entity_state)
+            return reply
 
         # Reached iteration limit — save state and return whatever text we have.
         self._memory.save_conversation(entity_id, messages)
@@ -248,7 +294,17 @@ class EdgeAgent(ABC):
                 output_tokens=resp.usage.output_tokens,
             )
         summary = resp.content[0].text if resp.content else ""
-        return messages[-4:], summary
+
+        # Keep the tail of the conversation, but Anthropic requires the first
+        # message to be 'user'. Drop leading assistant messages after slicing.
+        kept = messages[-4:]
+        while kept and kept[0].get("role") != "user":
+            kept = kept[1:]
+        if not kept:
+            # Fallback: the last message is always the current user turn.
+            kept = messages[-1:]
+
+        return kept, summary
 
     @staticmethod
     def _inject_summary(system_prompt: str, summary: str) -> str:
