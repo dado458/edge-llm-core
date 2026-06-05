@@ -24,10 +24,10 @@ class LocalMemoryStore(AbstractMemoryStore):
         path = self._dir / f"{entity_id}_conversation.json"
         path.write_text(json.dumps(messages, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def get_entity_state(self, entity_id: str) -> dict:
+    def get_entity_state(self, entity_id: str) -> dict | None:
         path = self._dir / f"{entity_id}_state.json"
         if not path.exists():
-            return {}
+            return None
         return json.loads(path.read_text(encoding="utf-8"))
 
     def save_entity_state(self, entity_id: str, state: dict) -> None:

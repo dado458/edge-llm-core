@@ -6,6 +6,9 @@ from .base import AbstractMemoryStore
 class RedisMemoryStore(AbstractMemoryStore):
     """
     Redis-backed store for production multi-instance deployments.
+    Uses a synchronous connection pool — safe for both sync and async
+    callers (FastAPI async routes run sync I/O in a thread pool via
+    anyio.to_thread; MCP tool handlers should do the same if needed).
     Requires: pip install edge-llm-core[redis]
     """
 
@@ -14,7 +17,8 @@ class RedisMemoryStore(AbstractMemoryStore):
             import redis as redis_lib
         except ImportError:
             raise ImportError("Install redis support: pip install 'edge-llm-core[redis]'")
-        self._r = redis_lib.from_url(redis_url, decode_responses=True)
+        # connection_pool ensures thread-safe reuse across workers
+        self._r = redis_lib.from_url(redis_url, decode_responses=True, max_connections=20)
         self._ttl = ttl_seconds
 
     def _conv_key(self, entity_id: str) -> str:
@@ -30,9 +34,9 @@ class RedisMemoryStore(AbstractMemoryStore):
     def save_conversation(self, entity_id: str, messages: list[dict]) -> None:
         self._r.set(self._conv_key(entity_id), json.dumps(messages, ensure_ascii=False), ex=self._ttl)
 
-    def get_entity_state(self, entity_id: str) -> dict:
+    def get_entity_state(self, entity_id: str) -> dict | None:
         raw = self._r.get(self._state_key(entity_id))
-        return json.loads(raw) if raw else {}
+        return json.loads(raw) if raw else None
 
     def save_entity_state(self, entity_id: str, state: dict) -> None:
         self._r.set(self._state_key(entity_id), json.dumps(state, ensure_ascii=False), ex=self._ttl)

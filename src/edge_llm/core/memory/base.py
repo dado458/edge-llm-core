@@ -16,8 +16,8 @@ class AbstractMemoryStore(ABC):
         """Persist the full message history."""
 
     @abstractmethod
-    def get_entity_state(self, entity_id: str) -> dict:
-        """Return the domain state dict for this entity (stage, notes, metadata)."""
+    def get_entity_state(self, entity_id: str) -> dict | None:
+        """Return the domain state dict for this entity, or None if not found."""
 
     @abstractmethod
     def save_entity_state(self, entity_id: str, state: dict) -> None:
