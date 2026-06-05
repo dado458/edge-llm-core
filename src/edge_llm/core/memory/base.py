@@ -25,7 +25,7 @@ class AbstractMemoryStore(ABC):
 
     def update_entity_state(self, entity_id: str, **fields) -> dict:
         """Merge fields into the existing state and persist. Returns updated state."""
-        state = self.get_entity_state(entity_id)
+        state = self.get_entity_state(entity_id) or {}
         state.update(fields)
         self.save_entity_state(entity_id, state)
         return state

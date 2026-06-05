@@ -10,29 +10,43 @@ MODEL_COSTS: dict[str, dict[str, float]] = {
     "claude-haiku-4-5-20251001": {"input": 0.25,  "output": 1.25},
 }
 
-# Monthly call limits per plan (None = unlimited)
+# Monthly call limits per plan (None = unlimited).
+# Includes both legacy names (basic/pro) and new value-based tier names.
+# IMPORTANT: unknown plan names fall through to the DEFAULT below — always add
+# new plans here or they will get the default cap, not unlimited access.
 PLAN_LIMITS: dict[str, int | None] = {
-    "basic":      500,
-    "pro":        5_000,
+    # legacy
+    "basic":      1_500,
+    "pro":        10_000,
     "enterprise": None,
+    # value-based pricing tiers
+    "starter":    1_500,
+    "growth":     10_000,
+    "agency":     50_000,
 }
+_DEFAULT_PLAN_LIMIT = 1_500  # safe fallback for any unrecognised plan name
 
 # Monthly total-token budgets per plan (input + output combined, None = unlimited).
-# Calibrated at ~2× the expected usage for the call limit so normal use never hits
-# the cap, while a single runaway conversation (giant context) gets blocked.
 PLAN_TOKEN_LIMITS: dict[str, int | None] = {
-    "basic":      1_000_000,    # ~2× 500 avg calls @ 1 100 tok each
-    "pro":        10_000_000,   # ~2× 5 000 avg calls @ 1 100 tok each
+    "basic":      1_000_000,
+    "pro":        10_000_000,
     "enterprise": None,
+    "starter":    1_000_000,
+    "growth":     10_000_000,
+    "agency":     None,
 }
+_DEFAULT_TOKEN_LIMIT = 1_000_000
 
 # Hard cap on input tokens for a single call, by plan.
-# Prevents one call from consuming the whole monthly budget.
 MAX_INPUT_TOKENS_PER_CALL: dict[str, int] = {
-    "basic":       8_000,   # ~6 back-and-forth turns + system prompt
-    "pro":        32_000,   # longer conversations
-    "enterprise": 200_000,  # nearly uncapped
+    "basic":       8_000,
+    "pro":        32_000,
+    "enterprise": 200_000,
+    "starter":     8_000,
+    "growth":     32_000,
+    "agency":     64_000,
 }
+_DEFAULT_CALL_TOKEN_CAP = 8_000
 
 
 @dataclass
@@ -64,21 +78,22 @@ class AbstractUsageTracker(ABC):
 
     def is_over_limit(self, tenant_id: str, plan: str) -> bool:
         """True when the monthly call count has reached the plan cap."""
-        limit = PLAN_LIMITS.get(plan)
+        # Use sentinel to distinguish "unlimited" (explicit None) from "unknown plan".
+        limit = PLAN_LIMITS.get(plan, _DEFAULT_PLAN_LIMIT)
         if limit is None:
             return False
         return self.summary(tenant_id).calls >= limit
 
     def is_over_token_limit(self, tenant_id: str, plan: str) -> bool:
         """True when cumulative monthly tokens have reached the plan token budget."""
-        limit = PLAN_TOKEN_LIMITS.get(plan)
+        limit = PLAN_TOKEN_LIMITS.get(plan, _DEFAULT_TOKEN_LIMIT)
         if limit is None:
             return False
         return self.summary(tenant_id).total_tokens >= limit
 
     def would_exceed_token_limit(self, tenant_id: str, plan: str, estimated_tokens: int) -> bool:
         """True if adding estimated_tokens would breach the monthly token budget."""
-        limit = PLAN_TOKEN_LIMITS.get(plan)
+        limit = PLAN_TOKEN_LIMITS.get(plan, _DEFAULT_TOKEN_LIMIT)
         if limit is None:
             return False
         return (self.summary(tenant_id).total_tokens + estimated_tokens) > limit

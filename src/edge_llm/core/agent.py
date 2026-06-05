@@ -23,6 +23,17 @@ from .state_machine import StateMachine, StageContext
 
 
 _COMPACT_THRESHOLD = 20    # messages before compaction kicks in
+
+
+def _content_for_compact(content) -> str:
+    """Extract a readable string from a message content field for compaction summaries."""
+    if isinstance(content, str):
+        return content[:300]
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                return block.get("text", "")[:300]
+    return "[tool]"
 _COMPACT_MODEL     = "claude-haiku-4-5-20251001"
 _MAX_LOOP_ITERS    = 10    # safety: abort if Claude keeps calling tools without end_turn
 _MAX_MESSAGE_CHARS = 8_000 # input guard: ~2k tokens, enough for any real support/sales message
@@ -272,7 +283,7 @@ class EdgeAgent(ABC):
         if prior_summary:
             parts.append(f"[Earlier conversation summary: {prior_summary}]")
         parts.extend(
-            f"{m['role'].upper()}: {m['content'] if isinstance(m['content'], str) else '[tool]'}"
+            f"{m['role'].upper()}: {_content_for_compact(m['content'])}"
             for m in messages[:-4]
         )
         history_text = "\n".join(parts)
