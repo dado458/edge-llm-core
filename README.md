@@ -144,6 +144,8 @@ BaseEdgeMCPServer          ← your MCP server
          └── UsageTracker   ← billing-ready usage metering
 ```
 
+Full design rationale and pattern writeup: [docs/edge-llm-pattern-architecture.pdf](docs/edge-llm-pattern-architecture.pdf)
+
 ## Available verticals
 
 | Package | Domain | Install |
