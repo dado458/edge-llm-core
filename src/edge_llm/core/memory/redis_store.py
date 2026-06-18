@@ -40,3 +40,13 @@ class RedisMemoryStore(AbstractMemoryStore):
 
     def save_entity_state(self, entity_id: str, state: dict) -> None:
         self._r.set(self._state_key(entity_id), json.dumps(state, ensure_ascii=False), ex=self._ttl)
+
+    def list_entity_states(self) -> list[tuple[str, dict]]:
+        prefix = "edge:state:"
+        result = []
+        for key in self._r.scan_iter(f"{prefix}*"):
+            entity_id = key[len(prefix):]
+            raw = self._r.get(key)
+            if raw:
+                result.append((entity_id, json.loads(raw)))
+        return result

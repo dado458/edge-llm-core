@@ -29,3 +29,8 @@ class AbstractMemoryStore(ABC):
         state.update(fields)
         self.save_entity_state(entity_id, state)
         return state
+
+    def list_entity_states(self) -> list[tuple[str, dict]]:
+        """Return all (entity_id, state) pairs in the store.
+        Override in subclasses for efficient implementations."""
+        return []

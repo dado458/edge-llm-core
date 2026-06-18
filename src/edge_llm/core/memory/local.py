@@ -33,3 +33,12 @@ class LocalMemoryStore(AbstractMemoryStore):
     def save_entity_state(self, entity_id: str, state: dict) -> None:
         path = self._dir / f"{entity_id}_state.json"
         path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    def list_entity_states(self) -> list[tuple[str, dict]]:
+        result = []
+        for f in self._dir.glob("*_state.json"):
+            entity_id = f.stem.replace("_state", "")
+            state = self.get_entity_state(entity_id)
+            if state is not None:
+                result.append((entity_id, state))
+        return result
