@@ -18,6 +18,7 @@ Usage:
         SalesMCPServer().run()
 """
 import asyncio
+import functools
 from abc import ABC, abstractmethod
 
 from mcp.server import Server
@@ -111,7 +112,7 @@ class BaseEdgeMCPServer(ABC):
             if not fn:
                 return [TextContent(type="text", text=f"Unknown tool: {name}")]
             try:
-                result = fn(arguments)
+                result = await asyncio.to_thread(fn, arguments)
                 import json
                 return [TextContent(type="text", text=json.dumps(result, ensure_ascii=False))]
             except Exception as e:
@@ -217,7 +218,7 @@ class BaseEdgeMCPServer(ABC):
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _append_note(self, entity_id: str, note: str) -> dict:
-        state = self._memory.get_entity_state(entity_id)
+        state = self._memory.get_entity_state(entity_id) or {}
         notes = state.get("notes", [])
         notes.append(note)
         return self._memory.update_entity_state(entity_id, notes=notes)
