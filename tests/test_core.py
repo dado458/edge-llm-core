@@ -228,3 +228,37 @@ def test_compact_includes_prior_summary_in_history(tmp_path, monkeypatch):
     call_args = agent._client.messages.create.call_args
     prompt_content = call_args[1]["messages"][0]["content"]
     assert "old summary" in prompt_content
+
+
+# ── WebhookClient ────────────────────────────────────────────────────────────
+
+from edge_llm.core.integrations import WebhookClient
+
+
+def test_webhook_post_success(monkeypatch):
+    calls = []
+
+    class _FakeResponse:
+        def raise_for_status(self): pass
+
+    def fake_post(url, json, timeout):
+        calls.append((url, json))
+        return _FakeResponse()
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    client = WebhookClient("https://hooks.example.com/abc")
+    ok = client.post({"text": "hello"})
+
+    assert ok is True
+    assert calls == [("https://hooks.example.com/abc", {"text": "hello"})]
+
+
+def test_webhook_post_failure_returns_false(monkeypatch):
+    def fake_post(url, json, timeout):
+        raise ConnectionError("unreachable")
+
+    monkeypatch.setattr("httpx.post", fake_post)
+
+    client = WebhookClient("https://hooks.example.com/abc")
+    assert client.post({"text": "hello"}) is False
